@@ -1,27 +1,26 @@
 import logging
 import random
 import re
-import time
-import json
-import asyncio
-import aiohttp
+import requests
 from datetime import datetime
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
+from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes, MessageHandler, filters
 from telegram.constants import ParseMode
 
 # ========== ТВОИ ДАННЫЕ ==========
-BOT_TOKEN = "8430585997:AAFE8C3ostnoTQiwSlwVmYpnVQI5FjbsCRc"
-CHANNEL_LINK = "https://t.me/+WLiiYR7_ymZjYWY1"
-CHANNEL_ID = -1003256576224
+BOT_TOKEN = "8616937683:AAGSWcZhZWgdBx4y28IhK7Y7kXLab8IrbL0"
+CHANNEL_LINK = "https://t.me/+i6Zr8Mk_fYYxMTI0"
+CHANNEL_ID = -1003885502543
+YOUR_TELEGRAM_ID = 571001160
 
-# ========== БАН-ЛИСТ ==========
+# ========== БАН-ЛИСТ (РЕЛЕИ, КРУПНЯК, БОТЫ) ==========
 BANNED_USERNAMES = {
     "giftrelayer", "mrktbank", "kallent", "monk", "durov",
     "virusgift", "portalsrelayer", "lucha", "snoopdogg", "snoop", 
     "ufc", "nft", "telegram", "nftgift", "nftgiftbot", "ton", "gift",
-    "relayer", "bank", "kallen"
+    "relayer", "bank", "kallen", "nftbot", "giftbot", "channel", "group"
 }
+BANNED_IDS = set()
 
 # ========== ЖЕНСКИЕ ИМЕНА ==========
 FEMALE_NAMES = {
@@ -35,39 +34,38 @@ FEMALE_NAMES = {
 }
 
 # ========== НАСТРОЙКИ ==========
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 logger = logging.getLogger(__name__)
 
-# ========== КЭШ ДЛЯ БЫСТРОГО ПАРСИНГА ==========
-parser_cache = {}
-cache_ttl = 3600  # 1 час
-
-# ========== ОПТИМИЗИРОВАННЫЙ СПИСОК NFT ==========
+# ========== ПОЛНЫЙ СПИСОК NFT ==========
 NFT_LIST = [
-    {"name": "CandyCane", "min_id": 1000, "max_id": 150000},
-    {"name": "CloverPin", "min_id": 1000, "max_id": 60000},
-    {"name": "CookieHeart", "min_id": 1000, "max_id": 60000},
-    {"name": "EasterEgg", "min_id": 1000, "max_id": 60000},
-    {"name": "GingerCookie", "min_id": 1000, "max_id": 60000},
-    {"name": "HeartLocket", "min_id": 1000, "max_id": 60000},
-    {"name": "LoveCandle", "min_id": 1000, "max_id": 60000},
-    {"name": "LovePotion", "min_id": 1000, "max_id": 60000},
-    {"name": "Rose", "min_id": 1000, "max_id": 60000},
-    {"name": "SweetCookie", "min_id": 1000, "max_id": 60000},
-    {"name": "BunnyMuffin", "min_id": 1000, "max_id": 60000},
-    {"name": "Cherry", "min_id": 1000, "max_id": 60000},
-    {"name": "KissedFrog", "min_id": 1000, "max_id": 60000},
-    {"name": "Peach", "min_id": 1000, "max_id": 60000},
-    {"name": "BerryBox", "min_id": 1000, "max_id": 60000},
-    {"name": "Bunny", "min_id": 1000, "max_id": 60000},
-    {"name": "Cake", "min_id": 1000, "max_id": 130000},
-    {"name": "Candle", "min_id": 1000, "max_id": 20000},
-    {"name": "Chocolate", "min_id": 1000, "max_id": 60000},
+    {"name": "BDayCandle", "difficulty": "easy", "min_id": 1000, "max_id": 20000},
+    {"name": "CandyCane", "difficulty": "easy", "min_id": 1000, "max_id": 150000},
+    {"name": "CloverPin", "difficulty": "easy", "min_id": 1000, "max_id": 60000},
+    {"name": "CookieHeart", "difficulty": "medium", "min_id": 1000, "max_id": 60000},
+    {"name": "EasterEgg", "difficulty": "medium", "min_id": 1000, "max_id": 60000},
+    {"name": "GingerCookie", "difficulty": "easy", "min_id": 1000, "max_id": 60000},
+    {"name": "HeartLocket", "difficulty": "hard", "min_id": 1000, "max_id": 60000},
+    {"name": "LoveCandle", "difficulty": "hard", "min_id": 1000, "max_id": 60000},
+    {"name": "LovePotion", "difficulty": "hard", "min_id": 1000, "max_id": 60000},
+    {"name": "Rose", "difficulty": "medium", "min_id": 1000, "max_id": 60000},
+    {"name": "SweetCookie", "difficulty": "easy", "min_id": 1000, "max_id": 60000},
+    {"name": "BunnyMuffin", "difficulty": "medium", "min_id": 1000, "max_id": 60000},
+    {"name": "Cherry", "difficulty": "easy", "min_id": 1000, "max_id": 60000},
+    {"name": "KissedFrog", "difficulty": "hard", "min_id": 1000, "max_id": 60000},
+    {"name": "Peach", "difficulty": "easy", "min_id": 1000, "max_id": 60000},
 ]
+
+NFT_DICT = {nft["name"]: nft for nft in NFT_LIST}
 
 # ========== ХРАНИЛИЩЕ ==========
 users_db = {}
+blocked_nfts = {}
 user_settings = {}
+last_message_ids = {}
 
 # ========== ПРОВЕРКА ПОДПИСКИ ==========
 async def check_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -78,162 +76,261 @@ async def check_subscription(user_id: int, context: ContextTypes.DEFAULT_TYPE) -
         logger.error(f"Ошибка проверки подписки: {e}")
         return False
 
-# ========== СУПЕР-БЫСТРЫЙ ПАРСИНГ (АСИНХРОННЫЙ) ==========
-async def quick_parse_owner(session: aiohttp.ClientSession, gift_url: str) -> dict:
-    """Максимально быстрый парсинг с кэшем"""
-    
-    # Проверяем кэш
-    if gift_url in parser_cache:
-        cache_time, result = parser_cache[gift_url]
-        if time.time() - cache_time < cache_ttl:
-            return result
-    
-    try:
-        headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'text/html,application/xhtml+xml',
-            'Accept-Language': 'ru-RU,ru;q=0.9',
-            'Connection': 'keep-alive',
-        }
-        
-        async with session.get(gift_url, headers=headers, timeout=3) as response:
-            if response.status != 200:
-                parser_cache[gift_url] = (time.time(), None)
-                return None
-            
-            html = await response.text()
-            
-            # Ищем username в тексте (самый быстрый способ)
-            username_match = re.search(r'@(\w{5,32})', html)
-            
-            result = None
-            if username_match:
-                username = username_match.group(1).lower()
-                if username not in BANNED_USERNAMES:
-                    # Проверяем на женское имя
-                    is_female = any(name in username for name in FEMALE_NAMES)
-                    if is_female:
-                        result = {
-                            'username': username,
-                            'url': gift_url,
-                            'success': True
-                        }
-            
-            # Сохраняем в кэш
-            parser_cache[gift_url] = (time.time(), result)
-            return result
-            
-    except Exception as e:
-        logger.error(f"Ошибка парсинга: {e}")
-        parser_cache[gift_url] = (time.time(), None)
-        return None
+async def require_subscription(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not await check_subscription(user_id, context):
+        await show_subscription_required(update, context)
+        return False
+    return True
 
-# ========== ПАРАЛЛЕЛЬНЫЙ ПОИСК (10 ЗАПРОСОВ ОДНОВРЕМЕННО) ==========
-async def parallel_search(count=10):
-    """Параллельный поиск NFT (очень быстро)"""
+async def show_subscription_required(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    keyboard = [[InlineKeyboardButton("📢 Подписаться на канал", url=CHANNEL_LINK)]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    message = "╔══════════════════════════╗\n║     ⚠️ ПОДПИСКА         ║\n╚══════════════════════════╝\n\nДля использования бота подпишитесь на канал!"
+    
+    if update.callback_query:
+        await update.callback_query.message.edit_text(message, reply_markup=reply_markup)
+    else:
+        await update.message.reply_text(message, reply_markup=reply_markup)
+
+# ========== ФУНКЦИЯ ПОИСКА ВЛАДЕЛЬЦА NFT ==========
+def get_nft_owner(gift_url: str) -> dict:
+    """Парсит страницу NFT и возвращает информацию о владельце"""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(gift_url, headers=headers, timeout=5)
+        
+        if response.status_code != 200:
+            return {'success': False, 'error': f'HTTP {response.status_code}'}
+        
+        text = response.text
+        
+        # Ищем username в тексте
+        username_match = re.search(r'@(\w{5,32})', text)
+        if username_match:
+            username = username_match.group(1).lower()
+            return {
+                'success': True,
+                'owner_username': username,
+                'owner_id': None,
+                'url': gift_url
+            }
+        
+        return {'success': False, 'error': 'Владелец не найден'}
+        
+    except Exception as e:
+        logger.error(f"Ошибка парсинга {gift_url}: {e}")
+        return {'success': False, 'error': str(e)}
+
+# ========== ФУНКЦИЯ ГЕНЕРАЦИИ NFT С ПОИСКОМ ВЛАДЕЛЬЦЕВ ==========
+async def find_nft_with_owners(count=5, mode="girls"):
+    """Генерирует NFT и возвращает только те, у которых есть владелец"""
+    
+    # Фильтруем NFT по режиму
+    if mode == "girls":
+        girl_keywords = ["heart", "love", "rose", "sweet", "bunny", "cookie", "cherry", "kiss", "peach"]
+        available_nfts = [n for n in NFT_LIST if any(k in n["name"].lower() for k in girl_keywords)]
+    elif mode == "light":
+        available_nfts = [n for n in NFT_LIST if n["difficulty"] == "easy"]
+    elif mode == "medium":
+        available_nfts = [n for n in NFT_LIST if n["difficulty"] in ["easy", "medium"]]
+    elif mode == "heavy":
+        available_nfts = [n for n in NFT_LIST if n["difficulty"] in ["medium", "hard"]]
+    else:
+        available_nfts = NFT_LIST
+    
+    if not available_nfts:
+        available_nfts = NFT_LIST
     
     results = []
     used_ids = set()
+    attempts = 0
+    max_attempts = 50
     
-    async with aiohttp.ClientSession() as session:
-        tasks = []
-        nft_list = []
+    while len(results) < count and attempts < max_attempts:
+        nft = random.choice(available_nfts)
+        nft_id = random.randint(nft["min_id"], nft["max_id"])
         
-        # Генерируем URL для проверки
-        for _ in range(count * 3):  # Запас для отсева
-            nft = random.choice(NFT_LIST)
-            nft_id = random.randint(nft["min_id"], nft["max_id"])
+        if nft_id in used_ids:
+            attempts += 1
+            continue
+        
+        clean_name = re.sub(r"[^\w]", "", nft["name"])
+        url = f"https://t.me/nft/{clean_name}-{nft_id}"
+        
+        # Получаем информацию о владельце
+        owner_info = get_nft_owner(url)
+        
+        if owner_info['success'] and owner_info.get('owner_username'):
+            username = owner_info['owner_username']
             
-            if nft_id in used_ids:
-                continue
-                
-            clean_name = re.sub(r"[^\w]", "", nft["name"])
-            url = f"https://t.me/nft/{clean_name}-{nft_id}"
-            
-            nft_list.append(url)
-            used_ids.add(nft_id)
+            # Проверяем бан-лист
+            if username not in BANNED_USERNAMES:
+                # Для режима "girls" проверяем женские имена
+                if mode == "girls":
+                    is_female = any(name in username for name in FEMALE_NAMES)
+                    if is_female:
+                        results.append({
+                            "name": nft["name"],
+                            "url": url,
+                            "owner": username,
+                            "nft_id": nft_id
+                        })
+                        logger.info(f"✅ Найдена девушка: @{username}")
+                else:
+                    # Для других режимов добавляем всех, кроме бана
+                    results.append({
+                        "name": nft["name"],
+                        "url": url,
+                        "owner": username,
+                        "nft_id": nft_id
+                    })
+                    logger.info(f"✅ Найден владелец: @{username}")
         
-        # Запускаем ВСЕ запросы параллельно
-        tasks = [quick_parse_owner(session, url) for url in nft_list]
-        parsed_results = await asyncio.gather(*tasks)
-        
-        # Собираем только успешные результаты
-        for res in parsed_results:
-            if res and len(results) < count:
-                results.append(res)
+        used_ids.add(nft_id)
+        attempts += 1
     
+    logger.info(f"🎯 Найдено {len(results)} владельцев за {attempts} попыток")
     return results
 
-# ========== КРАСИВЫЙ ВЫВОД ==========
-async def show_results(update: Update, context: ContextTypes.DEFAULT_TYPE, page=1):
+# ========== ГЛАВНОЕ МЕНЮ ==========
+async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user = update.effective_user
+    
+    text = "╔══════════════════════════╗\n"
+    text += "║     🚀 NFT ПАРСЕР       ║\n"
+    text += "╚══════════════════════════╝\n\n"
+    text += f"👋 Привет, @{user.username or 'user'}!\n\n"
+    text += "🔍 Поиск владельцев NFT\n"
+    text += "🚫 Бан-лист релеев и ботов\n"
+    text += "👧 Фильтр по женским именам"
+    
+    keyboard = [
+        [InlineKeyboardButton("👧 ПОИСК ДЕВУШЕК", callback_data="search_girls")],
+        [InlineKeyboardButton("🎲 РАНДОМ ПОИСК", callback_data="search_random")],
+        [InlineKeyboardButton("👤 МОЙ ПРОФИЛЬ", callback_data="menu_profile")],
+        [InlineKeyboardButton("📢 КАНАЛ", url=CHANNEL_LINK)]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    if update.callback_query:
+        await update.callback_query.message.edit_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    else:
+        await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+# ========== КОМАНДА START ==========
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    username = update.effective_user.username or f"user{user_id}"
+    
+    if not await require_subscription(update, context):
+        return
+    
+    if user_id not in users_db:
+        users_db[user_id] = {
+            'username': username,
+            'registered': datetime.now().strftime("%Y-%m-%d"),
+            'searches': 0,
+            'users_found': 0
+        }
+    
+    if user_id not in user_settings:
+        user_settings[user_id] = {'results_count': 5}
+    
+    await show_main_menu(update, context)
+
+# ========== МЕНЮ ПОИСКА ==========
+async def show_search_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    
+    text = "╔══════════════════════════╗\n"
+    text += "║     🔍 ВЫБОР ПОИСКА     ║\n"
+    text += "╚══════════════════════════╝\n\n"
+    text += "👧 Поиск девушек - только женские ники\n"
+    text += "🎲 Рандом поиск - все владельцы (кроме бана)"
+    
+    keyboard = [
+        [InlineKeyboardButton("👧 ПОИСК ДЕВУШЕК", callback_data="search_girls")],
+        [InlineKeyboardButton("🎲 РАНДОМ ПОИСК", callback_data="search_random")],
+        [InlineKeyboardButton("◀️ НАЗАД", callback_data="main_menu")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.message.edit_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+# ========== МЕНЮ РЕЖИМОВ ==========
+async def show_modes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    
+    text = "╔══════════════════════════╗\n"
+    text += "║     🎲 ВЫБОР РЕЖИМА     ║\n"
+    text += "╚══════════════════════════╝\n\n"
+    text += "🟢 Легкий - дешевые подарки\n"
+    text += "🟡 Средний - средние подарки\n"
+    text += "🔴 Жирный - дорогие подарки"
+    
+    keyboard = [
+        [InlineKeyboardButton("🟢 ЛЕГКИЙ РЕЖИМ", callback_data="mode_light")],
+        [InlineKeyboardButton("🟡 СРЕДНИЙ РЕЖИМ", callback_data="mode_medium")],
+        [InlineKeyboardButton("🔴 ЖИРНЫЙ РЕЖИМ", callback_data="mode_heavy")],
+        [InlineKeyboardButton("◀️ НАЗАД", callback_data="menu_search")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    await query.message.edit_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+
+# ========== ПОИСК И ПОКАЗ РЕЗУЛЬТАТОВ ==========
+async def start_search(update: Update, context: ContextTypes.DEFAULT_TYPE, mode):
     query = update.callback_query
     user_id = query.from_user.id
     
-    # Проверяем подписку
-    if not await check_subscription(user_id, context):
-        keyboard = [[InlineKeyboardButton("📢 Подписаться", url=CHANNEL_LINK)]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await query.message.edit_text("⚠️ Сначала подпишись на канал!", reply_markup=reply_markup)
-        return
-    
     # Сообщение о начале поиска
     await query.message.edit_text(
-        "🔍 *Активный поиск владельцев NFT...*\n\n"
-        "⚡ Параллельный парсинг\n"
-        "⏳ Ожидайте 5-10 секунд",
+        "╔══════════════════════════╗\n"
+        "║     🔍 ПОИСК...          ║\n"
+        "╚══════════════════════════╝\n\n"
+        "⚡ Ищем владельцев NFT...\n"
+        "⏳ Это займет 5-10 секунд",
         parse_mode='Markdown'
     )
     
-    # Запускаем параллельный поиск
-    girls = await parallel_search(10)
+    # Запускаем поиск
+    results = await find_nft_with_owners(5, mode)
     
-    if not girls:
-        keyboard = [[InlineKeyboardButton("🔄 Попробовать снова", callback_data="search")]]
+    # Обновляем статистику
+    if user_id in users_db:
+        users_db[user_id]['searches'] += 1
+        users_db[user_id]['users_found'] += len(results)
+    
+    if not results:
+        keyboard = [[InlineKeyboardButton("🔄 ПОПРОБОВАТЬ СНОВА", callback_data=f"search_{mode}")]]
         reply_markup = InlineKeyboardMarkup(keyboard)
         await query.message.edit_text(
-            "❌ *Никого не нашлось*\n\n"
-            "Попробуйте еще раз через несколько секунд.",
-            parse_mode='Markdown',
-            reply_markup=reply_markup
+            "╔══════════════════════════╗\n"
+            "║     ❌ НИЧЕГО НЕ НАЙДЕНО ║\n"
+            "╚══════════════════════════╝\n\n"
+            "Попробуйте еще раз позже.",
+            reply_markup=reply_markup,
+            parse_mode='Markdown'
         )
         return
     
-    # Пагинация
-    items_per_page = 5
-    total_pages = (len(girls) + items_per_page - 1) // items_per_page
-    start = (page - 1) * items_per_page
-    end = min(start + items_per_page, len(girls))
-    page_girls = girls[start:end]
-    
-    # Красивый заголовок
+    # Формируем результат
     text = "╔══════════════════════════╗\n"
-    text += "║     🎯 ВЛАДЕЛЬЦЫ NFT     ║\n"
+    text += "║     🎯 РЕЗУЛЬТАТЫ       ║\n"
     text += "╚══════════════════════════╝\n\n"
     
-    # Список с найденными
-    for i, girl in enumerate(page_girls, start=start + 1):
-        text += f"┌─ #{i}\n"
-        text += f"├─ 👤 @{girl['username']}\n"
-        text += f"└─ 🔗 [Открыть NFT]({girl['url']})\n\n"
+    for i, item in enumerate(results, 1):
+        text += f"{i}. 👤 @{item['owner']}\n"
+        text += f"   🎁 {item['name']}\n"
+        text += f"   🔗 [Ссылка]({item['url']})\n\n"
     
-    text += f"📊 *Всего найдено:* {len(girls)}\n"
-    text += f"📄 *Страница:* {page}/{total_pages}"
+    text += f"📊 Найдено: {len(results)} владельцев"
     
-    # Кнопки навигации
-    keyboard = []
-    
-    if total_pages > 1:
-        nav_row = []
-        if page > 1:
-            nav_row.append(InlineKeyboardButton("◀️ Назад", callback_data=f"page_{page-1}"))
-        nav_row.append(InlineKeyboardButton(f"📄 {page}/{total_pages}", callback_data="noop"))
-        if page < total_pages:
-            nav_row.append(InlineKeyboardButton("Вперед ▶️", callback_data=f"page_{page+1}"))
-        keyboard.append(nav_row)
-    
-    keyboard.append([InlineKeyboardButton("🔄 Новый поиск", callback_data="search")])
-    keyboard.append([InlineKeyboardButton("📢 Канал", url=CHANNEL_LINK)])
-    
+    keyboard = [
+        [InlineKeyboardButton("🔄 НОВЫЙ ПОИСК", callback_data=f"search_{mode}")],
+        [InlineKeyboardButton("🏠 ГЛАВНОЕ МЕНЮ", callback_data="main_menu")]
+    ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await query.message.edit_text(
@@ -243,84 +340,80 @@ async def show_results(update: Update, context: ContextTypes.DEFAULT_TYPE, page=
         disable_web_page_preview=True
     )
 
-# ========== КОМАНДА START ==========
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    username = update.effective_user.username or "друг"
+# ========== ПРОФИЛЬ ==========
+async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    user_id = query.from_user.id
+    user = users_db.get(user_id, {})
     
-    # Сохраняем пользователя
-    if user_id not in users_db:
-        users_db[user_id] = {
-            'username': username,
-            'registered': datetime.now().strftime("%Y-%m-%d"),
-            'searches': 0
-        }
-    
-    # Проверяем подписку
-    if not await check_subscription(user_id, context):
-        keyboard = [[InlineKeyboardButton("📢 Подписаться", url=CHANNEL_LINK)]]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        await update.message.reply_text(
-            "╔══════════════════════════╗\n"
-            "║     ⚠️ ПОДПИСКА         ║\n"
-            "╚══════════════════════════╝\n\n"
-            "Для использования бота нужно подписаться на канал!\n\n"
-            "Нажми кнопку ниже и вернись обратно.",
-            reply_markup=reply_markup,
-            parse_mode='Markdown'
-        )
-        return
-    
-    # Главное меню
     text = "╔══════════════════════════╗\n"
-    text += "║     🚀 NFT ПАРСЕР       ║\n"
+    text += "║        👤 ПРОФИЛЬ        ║\n"
     text += "╚══════════════════════════╝\n\n"
-    text += f"👋 Привет, @{username}!\n\n"
-    text += "🔍 *Быстрый поиск владельцев NFT*\n"
-    text += "⚡ Параллельный парсинг (10 запросов/сек)\n"
-    text += "🎯 Поиск девушек по никнеймам\n"
-    text += "🚫 Бан-лист релеев и ботов\n\n"
-    text += f"📊 Всего в базе: {len(NFT_LIST)} NFT"
+    text += f"🆔 ID: `{user_id}`\n"
+    text += f"👤 Username: @{user.get('username', 'unknown')}\n"
+    text += f"📅 Регистрация: {user.get('registered', 'Неизвестно')}\n\n"
+    text += f"📊 *Статистика*\n"
+    text += f"├─ Поисков: {user.get('searches', 0)}\n"
+    text += f"└─ Найдено: {user.get('users_found', 0)}"
     
-    keyboard = [
-        [InlineKeyboardButton("🔍 НАЙТИ ВЛАДЕЛЬЦЕВ", callback_data="search")],
-        [InlineKeyboardButton("📢 НАШ КАНАЛ", url=CHANNEL_LINK)]
-    ]
+    keyboard = [[InlineKeyboardButton("◀️ НАЗАД", callback_data="main_menu")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
-    await update.message.reply_text(text, reply_markup=reply_markup, parse_mode='Markdown')
+    await query.message.edit_text(text, reply_markup=reply_markup, parse_mode='Markdown')
 
-# ========== ОБРАБОТЧИК КНОПОК ==========
-async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ========== ОБРАБОТЧИК МЕНЮ ==========
+async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     await query.answer()
     
+    if not await require_subscription(update, context):
+        return
+    
     data = query.data
     
-    if data == "search":
-        await show_results(update, context, 1)
-    elif data.startswith("page_"):
-        page = int(data.split("_")[1])
-        await show_results(update, context, page)
-    elif data == "noop":
-        pass
+    if data == "main_menu":
+        await show_main_menu(update, context)
+    elif data == "menu_profile":
+        await show_profile(update, context)
+    elif data == "menu_search":
+        await show_search_menu(update, context)
+    elif data == "search_random":
+        await show_modes_menu(update, context)
+    elif data == "search_girls":
+        await start_search(update, context, "girls")
+    elif data == "mode_light":
+        await start_search(update, context, "light")
+    elif data == "mode_medium":
+        await start_search(update, context, "medium")
+    elif data == "mode_heavy":
+        await start_search(update, context, "heavy")
 
-# ========== ЗАПУСК ==========
+# ========== HELP КОМАНДА ==========
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await require_subscription(update, context):
+        return
+    
+    text = "🆘 *СПРАВКА*\n\n"
+    text += "/start - Начать работу\n"
+    text += "/help - Это сообщение"
+    
+    await update.message.reply_text(text, parse_mode='Markdown')
+
+# ========== ЗАПУСК БОТА ==========
 def main():
     print("╔════════════════════════════════════╗")
-    print("║     🚀 NFT ПАРСЕР ЗАПУЩЕН         ║")
+    print("║      🚀 NFT ПАРСЕР ЗАПУЩЕН        ║")
     print("╚════════════════════════════════════╝")
-    print(f"📢 Канал ID: {CHANNEL_ID}")
+    print(f"📢 ID канала: {CHANNEL_ID}")
     print(f"🔗 Ссылка: {CHANNEL_LINK}")
-    print("⚡ Режим: СУПЕР-БЫСТРЫЙ ПАРАЛЛЕЛЬНЫЙ ПАРСИНГ")
-    print("🎯 Поиск: владельцы NFT + женские имена")
-    print("✅ Кэширование: активное (1 час)")
+    print(f"🚫 В бане: {len(BANNED_USERNAMES)} ников")
     print("=" * 40)
     
     app = Application.builder().token(BOT_TOKEN).build()
     
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CallbackQueryHandler(button_handler))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CallbackQueryHandler(handle_menu))
     
     print("✅ Бот готов к работе!")
     app.run_polling()
