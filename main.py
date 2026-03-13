@@ -3,9 +3,9 @@ from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # ========== ТВОИ ДАННЫЕ ==========
-BOT_TOKEN = "8616937683:AAGSWcZhZWgdBx4y28IhK7Y7kXLab8IrbL0"
-CHANNEL_LINK = "https://t.me/+i6Zr8Mk_fYYxMTI0"
-CHANNEL_ID = -1003885502543
+BOT_TOKEN = "8430585997:AAFE8C3ostnoTQiwSlwVmYpnVQI5FjbsCRc"
+CHANNEL_LINK = "https://t.me/+WLiiYR7_ymZjYWY1"
+CHANNEL_ID = -1003256576224
 
 # ========== НАСТРОЙКИ ==========
 logging.basicConfig(level=logging.INFO)
