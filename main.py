@@ -8,9 +8,9 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Cont
 from telegram.constants import ParseMode
 
 # ========== ТВОИ ДАННЫЕ ==========
-BOT_TOKEN = "8616937683:AAGSWcZhZWgdBx4y28IhK7Y7kXLab8IrbL0"
-CHANNEL_LINK = "https://t.me/+i6Zr8Mk_fYYxMTI0"
-CHANNEL_ID = -1003885502543
+BOT_TOKEN = "8430585997:AAFE8C3ostnoTQiwSlwVmYpnVQI5FjbsCRc"
+CHANNEL_LINK = "https://t.me/+WLiiYR7_ymZjYWY1"
+CHANNEL_ID = -1003256576224
 YOUR_TELEGRAM_ID = 571001160
 
 # ========== БАН-ЛИСТ (РЕЛЕИ, КРУПНЯК, БОТЫ) ==========
