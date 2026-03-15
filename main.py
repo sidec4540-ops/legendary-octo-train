@@ -12,12 +12,6 @@ CHANNEL_LINK = "https://t.me/+WLiiYR7_ymZjYWY1"
 CHANNEL_ID = -1003256576224
 YOUR_TELEGRAM_ID = 571001160
 
-# ========== ТВОИ КАРТИНКИ ==========
-PHOTO_MENU = "https://i.imgur.com/I1rr27s.jpg"
-PHOTO_SEARCH = "https://i.imgur.com/Q2SUjFc.jpg"
-PHOTO_GIFTS = "https://i.imgur.com/ZByTzGK.jpg"
-PHOTO_SETTINGS = "https://i.imgur.com/pnKkCQn.jpg"
-
 # ========== НАСТРОЙКИ ==========
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -126,7 +120,7 @@ NFT_LIST = [
     {"name": "VoodooDoll", "difficulty": "hard", "id_range": "1000-26658", "min_id": 1000, "max_id": 26658}
 ]
 
-# ========== ЖЕНСКИЕ NFT (ТВОЙ ОТФИЛЬТРОВАННЫЙ СПИСОК) ==========
+# ========== ЖЕНСКИЕ NFT ==========
 GIRLS_NFT_LIST = [
     "Rose", "EternalRose", "LushBouquet", "SkullFlower", "Cherry", "Peach", 
     "PreciousPeach", "BerryBox", "LoveCandle", "LovePotion", "CupidCharm", 
@@ -141,8 +135,6 @@ GIRLS_NFT_LIST = [
     "ScaredCat", "NekoHelmet", "ToyBear", "MadPumpkin", "SantaHat", 
     "WinterWreath", "XmasStocking", "JingleBells", "EasterEgg"
 ]
-
-# Убираем дубликаты
 GIRLS_NFT_LIST = sorted(list(set(GIRLS_NFT_LIST)))
 
 NFT_DICT = {nft["name"]: nft for nft in NFT_LIST}
@@ -241,7 +233,6 @@ def generate_random_gifts(mode="light", count=20):
     return gifts
 
 def generate_girls_gifts(count=20):
-    """Генерирует подарки из списка женских NFT"""
     gifts = []
     for _ in range(count):
         nft_name = random.choice(GIRLS_NFT_LIST)
@@ -252,7 +243,7 @@ def generate_girls_gifts(count=20):
             gifts.append({"name": nft_name, "url": f"https://t.me/nft/{clean_name}-{nft_id}"})
     return gifts
 
-# ========== ГЛАВНОЕ МЕНЮ (С КАРТИНКОЙ) ==========
+# ========== ГЛАВНОЕ МЕНЮ ==========
 async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     text = f"❗ Привет, @{user.username or 'user'}! Это парсер для поиска мамонтов."
@@ -265,19 +256,10 @@ async def show_main_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     if update.callback_query:
-        await update.callback_query.message.delete()
-        await update.callback_query.message.reply_photo(
-            photo=PHOTO_MENU,
-            caption=text,
-            reply_markup=reply_markup
-        )
+        await update.callback_query.message.edit_text(text, reply_markup=reply_markup)
     else:
         await delete_previous_messages(update, context)
-        sent = await update.message.reply_photo(
-            photo=PHOTO_MENU,
-            caption=text,
-            reply_markup=reply_markup
-        )
+        sent = await update.message.reply_text(text, reply_markup=reply_markup)
         await save_message_id(update, sent)
 
 # ========== КОМАНДА /START ==========
@@ -299,7 +281,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_settings[user_id] = {'results_count': 20}
     await show_main_menu(update, context)
 
-# ========== МЕНЮ ПОИСКА (С КАРТИНКОЙ) ==========
+# ========== МЕНЮ ПОИСКА ==========
 async def show_search_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     text = """Выберите тип поиска:
@@ -314,15 +296,9 @@ async def show_search_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.message.delete()
-    await query.message.reply_photo(
-        photo=PHOTO_SEARCH,
-        caption=text,
-        reply_markup=reply_markup
-    )
+    await query.message.edit_text(text, reply_markup=reply_markup)
 
-# ========== МЕНЮ РЕЖИМОВ (С КАРТИНКОЙ) ==========
+# ========== МЕНЮ РЕЖИМОВ ==========
 async def show_modes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     text = """Выберите режим поиска:
@@ -345,13 +321,7 @@ async def show_modes_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.message.delete()
-    await query.message.reply_photo(
-        photo=PHOTO_GIFTS,
-        caption=text,
-        reply_markup=reply_markup
-    )
+    await query.message.edit_text(text, reply_markup=reply_markup)
 
 # ========== ПОДТВЕРЖДЕНИЕ РЕЖИМА ==========
 async def show_mode_confirmation(update: Update, context: ContextTypes.DEFAULT_TYPE, mode):
@@ -491,13 +461,19 @@ async def show_profile(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reply_markup = InlineKeyboardMarkup(keyboard)
     await query.message.edit_text(text, reply_markup=reply_markup)
 
-# ========== НАСТРОЙКИ (С КАРТИНКОЙ) ==========
+# ========== НАСТРОЙКИ ==========
 async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
     user_id = query.from_user.id
     current = user_settings.get(user_id, {}).get('results_count', 20)
-    text = """Настройки
-Выберите категорию настроек:"""
+    text = f"""Настройки
+Выберите категорию настроек:
+
+📊 Количество результатов ({current})
+🎨 Интерфейс результатов (Список)
+📝 Настройка шаблонов
+🎮 Выбрать режим
+🚫 Управление NFT"""
     keyboard = [
         [InlineKeyboardButton(f"📊 Количество результатов ({current})", callback_data="settings_results")],
         [InlineKeyboardButton("🎨 Интерфейс результатов (Список)", callback_data="settings_interface")],
@@ -507,13 +483,7 @@ async def show_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         [InlineKeyboardButton("🏠 Главное меню", callback_data="main_menu")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
-    
-    await query.message.delete()
-    await query.message.reply_photo(
-        photo=PHOTO_SETTINGS,
-        caption=text,
-        reply_markup=reply_markup
-    )
+    await query.message.edit_text(text, reply_markup=reply_markup)
 
 async def show_results_count_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     query = update.callback_query
@@ -896,14 +866,14 @@ async def handle_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ========== ЗАПУСК БОТА ==========
 def main():
     print("=" * 70)
-    print("🤖 NFT ПАРСЕР БОТ С ТВОИМ ДИЗАЙНОМ")
+    print("🤖 NFT ПАРСЕР БОТ")
     print("=" * 70)
     print(f"📢 ID канала: {CHANNEL_ID}")
     print(f"🔗 Ссылка: {CHANNEL_LINK}")
     print(f"👧 Женских NFT: {len(GIRLS_NFT_LIST)}")
     print("=" * 70)
     print("✅ Проверка подписки")
-    print("✅ Твои картинки в меню")
+    print("✅ Без картинок (только текст)")
     print("✅ Женские NFT отфильтрованы")
     print("=" * 70)
     
@@ -912,7 +882,7 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("status", status_command))
-    app.add_handler(CallbackQueryHandler(handle_menu, pattern="^(main_menu|menu_|search_|mode_|start_search_|model_page_|select_model_|results_page_|more_|settings_|set_results_|template_|nft_|support_|profile_|noop)"))
+    app.add_handler(CallbackQueryHandler(handle_menu))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
     
     print("✅ Бот запущен!")
